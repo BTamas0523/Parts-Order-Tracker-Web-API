@@ -1,0 +1,87 @@
+trigger:
+  branches:
+    include:
+      - master
+
+pr: none
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: vg-api-secrets
+  - name: buildConfiguration
+    value: Release
+  - name: dotnetVersion
+    value: 10.0.x
+  - name: projectPath
+    value: PartsOrderTracker.Api/PartsOrderTracker.Api/PartsOrderTracker.Api.csproj
+  - name: azureServiceConnection
+    value: sc-sapi
+  - name: resourceGroupName
+    value: Sapi_bemutato
+  - name: webAppName
+    value: app-api-sapi
+
+stages:
+  - stage: Build
+    displayName: Build API
+    jobs:
+      - job: Build
+        steps:
+          - checkout: self
+
+          - task: UseDotNet@2
+            displayName: Use .NET SDK $(dotnetVersion)
+            inputs:
+              packageType: sdk
+              version: $(dotnetVersion)
+
+          - task: DotNetCoreCLI@2
+            displayName: Restore
+            inputs:
+              command: restore
+              projects: $(projectPath)
+
+          - task: DotNetCoreCLI@2
+            displayName: Publish
+            inputs:
+              command: publish
+              publishWebProjects: false
+              projects: $(projectPath)
+              arguments: -c $(buildConfiguration) -o $(Build.ArtifactStagingDirectory)/api
+              zipAfterPublish: true
+
+          - publish: $(Build.ArtifactStagingDirectory)/api
+            displayName: Publish artifact
+            artifact: api
+
+  - stage: Deploy
+    displayName: Deploy API to App Service
+    dependsOn: Build
+    jobs:
+      - deployment: DeployApi
+        displayName: Deploy API
+        environment: dev
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: api
+
+                - task: AzureWebApp@1
+                  displayName: Deploy to Azure Web App
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    appType: webAppLinux
+                    appName: $(webAppName)
+                    package: $(Pipeline.Workspace)/api/*.zip
+
+                - task: AzureCLI@2
+                  displayName: Configure API app settings from secure variables
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: az webapp config appsettings set --resource-group "$(resourceGroupName)" --name "$(webAppName)" --settings MongoDb__ConnectionString="$(MONGODB_CONNECTION_STRING)" MongoDb__DatabaseName="$(MONGODB_DATABASE_NAME)" Azure__SignalR__ConnectionString="$(AZURE_SIGNALR_CONNECTION_STRING)" AzureAd__Instance="$(AZUREAD_INSTANCE)" AzureAd__TenantId="$(AZUREAD_TENANT_ID)" AzureAd__ClientId="$(AZUREAD_CLIENT_ID)" AzureAd__Audience="$(AZUREAD_AUDIENCE)" Cors__AllowedOrigins__0="$(UI_ALLOWED_ORIGIN_0)"

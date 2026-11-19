@@ -1,0 +1,92 @@
+name: Build and Deploy API
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  BUILD_CONFIGURATION: Release
+  DOTNET_VERSION: 10.0.x
+  PROJECT_PATH: PartsOrderTracker.Api/PartsOrderTracker.Api/PartsOrderTracker.Api.csproj
+  RESOURCE_GROUP: Sapi_bemutato
+  WEB_APP_NAME: app-api-sapi
+
+jobs:
+  build:
+    name: Build API
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: dotnet restore "${{ env.PROJECT_PATH }}"
+
+      - name: Publish
+        run: dotnet publish "${{ env.PROJECT_PATH }}" -c ${{ env.BUILD_CONFIGURATION }} -o "$GITHUB_WORKSPACE/publish/api"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: api
+          path: publish/api
+
+  deploy:
+    name: Deploy API
+    needs: build
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: api
+          path: publish/api
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.WEB_APP_NAME }}
+          package: publish/api
+
+      - name: Configure app settings from secrets
+        env:
+          MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }}
+          MONGODB_DATABASE_NAME: ${{ secrets.MONGODB_DATABASE_NAME }}
+          AZURE_SIGNALR_CONNECTION_STRING: ${{ secrets.AZURE_SIGNALR_CONNECTION_STRING }}
+          AZUREAD_INSTANCE: ${{ secrets.AZUREAD_INSTANCE }}
+          AZUREAD_TENANT_ID: ${{ secrets.AZUREAD_TENANT_ID }}
+          AZUREAD_CLIENT_ID: ${{ secrets.AZUREAD_CLIENT_ID }}
+          AZUREAD_AUDIENCE: ${{ secrets.AZUREAD_AUDIENCE }}
+          UI_ALLOWED_ORIGIN_0: ${{ secrets.UI_ALLOWED_ORIGIN_0 }}
+        run: |
+          az webapp config appsettings set \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$WEB_APP_NAME" \
+            --settings \
+            "MongoDb__ConnectionString=$MONGODB_CONNECTION_STRING" \
+            "MongoDb__DatabaseName=$MONGODB_DATABASE_NAME" \
+            "Azure__SignalR__ConnectionString=$AZURE_SIGNALR_CONNECTION_STRING" \
+            "AzureAd__Instance=$AZUREAD_INSTANCE" \
+            "AzureAd__TenantId=$AZUREAD_TENANT_ID" \
+            "AzureAd__ClientId=$AZUREAD_CLIENT_ID" \
+            "AzureAd__Audience=$AZUREAD_AUDIENCE" \
+            "Cors__AllowedOrigins__0=$UI_ALLOWED_ORIGIN_0"

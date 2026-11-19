@@ -1,0 +1,47 @@
+@host = https://localhost:7146
+@token = paste-access-token-here
+
+### List active parts (copy an id from this response into partId below)
+GET {{host}}/api/parts
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### List the latest 100 orders for the authenticated user
+GET {{host}}/api/orders/my
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### Get one order (replace with an order id from the previous response)
+@orderId = 000000000000000000000000
+GET {{host}}/api/orders/{{orderId}}
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### Create an order (replace with an id returned by GET /api/parts)
+@partId = 000000000000000000000000
+POST {{host}}/api/orders
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "items": [
+    {
+      "partId": "{{partId}}",
+      "quantity": 2
+    }
+  ]
+}
+
+### Invalid quantity: returns 400 Bad Request
+POST {{host}}/api/orders
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "items": [
+    {
+      "partId": "{{partId}}",
+      "quantity": 101
+    }
+  ]
+}
